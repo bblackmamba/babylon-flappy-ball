@@ -1,0 +1,378 @@
+<head>
+<!--  <link rel="manifest" href="manifest.webmanifest">-->
+</head>
+<body>
+<canvas id="render-canvas"></canvas>
+<div id="user-interface">
+  <img id="restart-btn" class="a-pos" src="https://storage.yandexcloud.net/test-bogdan/tests/assets/restart.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=YCAJE4ctXGhi13aqHa0p1nc-o%2F20230923%2Fru-central1%2Fs3%2Faws4_request&X-Amz-Date=20230923T120723Z&X-Amz-Expires=2592000&X-Amz-Signature=089AD9C597F4C920C73B9DAD7D09B886356CD07CB300147A98942984A0995271&X-Amz-SignedHeaders=host" />
+  <div id="play-screen">
+    <p id="score" class="a-pos">0</p>
+  </div>
+  <div id="game-over-screen">
+    <p id="game-over-info" class="game-over-p">GAME OVER</p>
+    <p id="best-score" class="game-over-p">BEST: 0</p>
+    <p id="now-score" class="game-over-p">NOW: 0</p>
+    <p id="tap-info" class="game-over-p">Tap to restart</p>
+  </div>
+</div>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&display=swap');
+  body, #render-canvas, #user-interface {
+    margin: 0;
+    width: 100%;
+    height: 100vh;
+    font-family: 'Black Ops One', cursive;
+    user-select: none;
+  }
+  body {
+    position: fixed;
+  }
+  #render-canvas {
+    outline: none;
+  }
+  /* PLAY SCREEN */
+  .a-pos {
+    position: absolute;
+  }
+  #restart-btn {
+    right: 0;
+    bottom: 0;
+    width: 200px;
+  }
+  #score {
+    top: 10vh;
+    width: 100%;
+    text-align: center;
+    font-size: 8vh;
+  }
+  /* GAME OVER SCREEN */
+  #game-over-screen {
+    display: none;
+    justify-content: center;
+    align-items: center;
+  }
+  .game-over-p {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+  }
+  #game-over-info {
+    top: 10vh;
+    font-size: 7vh;
+  }
+  #best-score {
+    top: 30vh;
+    font-size: 6vh;
+  }
+  #now-score {
+    top: 40vh;
+    font-size: 6vh;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+  }
+  #tap-info {
+    width: auto;
+    top: 70vh;
+    font-size: 4vh;
+    animation-name: tap-info_anim;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;
+    border-radius: 10px;
+    font-family: 'Black Ops One', cursive;
+    color: #878787;
+    background: #f0f8ff00;
+    border-width: 5px;
+  }
+  /* Анимации */
+  @keyframes coin-score_anim {
+    from{
+      color: black;
+    }
+    50%{
+      color: white;
+    }
+    to{
+      color: black;
+    }
+  }
+  @keyframes tap-info_anim {
+    from{
+      font-size: 4vh;
+      top: 70vh;
+      opacity: 0;
+    }
+    to{
+      font-size: 4vh;
+      top: 70vh;
+      opacity: 0;
+    }
+    50%{
+      font-size: 4.5vh;
+      top: 69.5vh;
+      opacity: 1;
+    }
+  }
+</style>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/cannon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.js"></script>
+<script>
+  // СОЗДАНИЕ МИРА
+  let canvas = window.document.querySelector('#render-canvas');
+
+
+  // Создание движка
+  let engine = new BABYLON.Engine(canvas);
+
+
+  // Создание сцены и присоеденение ее к движку
+  let scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color3(1, 1, 1);
+  scene.enablePhysics();
+  scene.createDefaultEnvironment({
+    createSkybox: false,
+    createGround: false,
+    cameraContrast: 2.5,
+    cameraExposure: 1
+  });
+
+  // Создание камеры
+  let camera = new BABYLON.FreeCamera('camera', new BABYLON.Vector3(0, 3, -13), scene);
+  camera.setTarget(new BABYLON.Vector3(0, 3, 0));
+
+
+  // Создание света
+  let light = new BABYLON.PointLight('light', new BABYLON.Vector3(-20, 5, 10), scene);
+  light.intensity = 0.3;
+
+
+  // Создание генератора теней
+  let shadowGenerator = new BABYLON.ShadowGenerator(1024, light);
+
+
+  // Создание платформы и материала для нее
+  let platformArray = [];
+  const createPlatform = (xPos, yPos = 0) => {
+    let platform = new BABYLON.MeshBuilder.CreateBox('box', {
+      width: 6,
+      height: 0.1,
+      depth: 6,
+      wrap: true
+    }, scene);
+    let boxMaterial = new BABYLON.StandardMaterial('material', scene);
+    boxMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    platform.material = boxMaterial;
+    platform.receiveShadows = true;
+    platform.physicsImpostor = new BABYLON.PhysicsImpostor(
+            platform,
+            BABYLON.PhysicsImpostor.BoxImpostor,
+            {
+              mass: 0
+            },
+            scene
+    );
+    platform.position.x = xPos;
+    platform.position.y = yPos;
+    platformArray.push(platform);
+  }
+
+
+  // Создание мяча и материала для него
+  const createBall = () => {
+    let ball = new BABYLON.MeshBuilder.CreateSphere('sphere', {
+      diametr: 0.8,
+    }, scene);
+    ball.position.y = 3.6;
+    let ballMaterial = new BABYLON.StandardMaterial('material', scene);
+    ballMaterial.emissiveColor = new BABYLON.Color3(0.9, 0, 0.3);
+    ball.material = ballMaterial;
+    shadowGenerator.getShadowMap().renderList.push(ball);
+    ball.physicsImpostor = new BABYLON.PhysicsImpostor(
+            ball,
+            BABYLON.PhysicsImpostor.SphereImpostor,
+            {
+              mass: 0.6,
+              restitution: 4,
+              friction: 5
+            },
+            scene
+    )
+
+    return ball;
+  }
+
+
+  // Создание препятствий
+  let lastRand = 0;
+  let boxArray = [];
+  let pointArray = [];
+  const createBox = (yPos, xPos) => {
+    let box = new BABYLON.MeshBuilder.CreateCylinder('cone', {
+      width: 2,
+      height: 2,
+      depth: 1
+    }, scene);
+    box.position = new BABYLON.Vector3(xPos, 3+yPos, 0.6);
+    box.material = new BABYLON.StandardMaterial('material', scene);
+    box.material.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+    box.physicsImpostor = new BABYLON.PhysicsImpostor(
+      box,
+      BABYLON.PhysicsImpostor.BoxImpostor,
+      {
+        mass: 0
+      },
+      scene
+    );
+    shadowGenerator.getShadowMap().renderList.push(box);
+    box.receiveShadows = true;
+    boxArray.push(box);
+  }
+  const createBoxRow = (xPos) => {
+    let rand = Math.floor(Math.random() * 4);
+    while(rand === lastRand){
+      rand = Math.floor(Math.random() * 4);
+    }
+    lastRand = rand;
+    for(let i = 0; i < 4; i++){
+      if(i === rand) {
+        pointArray.push(new BABYLON.Vector3(xPos, (i*2)+1, 0,6));
+        continue;
+      }
+      createBox((i*2)-2, xPos);
+    }
+  }
+
+
+  // АЛГОРИТМ
+  // Извлечение тегов из разметки
+  let restartBtn = window.document.querySelector('#restart-btn');
+  let scoreInfo = window.document.querySelector('#score');
+  let playScreen = window.document.querySelector('#play-screen');
+  let gameOverScreen = window.document.querySelector('#game-over-screen');
+  let bestScoreInfo = window.document.querySelector('#best-score');
+  let nowScoreInfo = window.document.querySelector('#now-score');
+  let tapInfo = window.document.querySelector('tap-info');
+  // Константы
+  const PLAY = 'play';
+  const GAME_OVER = 'game_over';
+  // Переменные
+  let ball = null;
+  let score = 0;
+  let state = PLAY;
+
+  // Функции
+  const clearArray = (array, isMesh = true) => {
+    if(isMesh) array.map(elem => elem.dispose());
+    while (array.length) array.pop();
+  }
+
+  const deleteGameObjects = () => {
+    ball.dispose();
+    clearArray(boxArray);
+    clearArray(platformArray);
+    clearArray(pointArray, false);
+  }
+
+  const createGameObjects = () => {
+    for(let i = 0; i < 10; i++){
+      createPlatform(i*6);
+      createPlatform(i*6, 9);
+      if (i !== 0) {
+        createBoxRow(i * 6);
+      }
+    }
+    ball = createBall();
+    score = 0;
+    scoreInfo.innerText = `${score}`;
+  }
+  const newRoadBlock = (zPos) => {
+    createPlatform(zPos*6);
+    createPlatform(i*6, 9);
+    createBoxRow(zPos*6);
+  }
+  const saveBestScore = () => {
+    window.localStorage.setItem('bestScore', score);
+  }
+  const loadBestScore = () => {
+    return (window.localStorage.getItem('bestScore'))
+            ? window.localStorage.getItem('bestScore')
+            : 0
+            ;
+  }
+  const setGameOverScreen = () => {
+    state = GAME_OVER;
+    playScreen.style.display = 'none';
+    gameOverScreen.style.display = 'flex';
+    let bestScore = loadBestScore();
+    if(score > bestScore){
+      saveBestScore();
+      bestScore = score;
+      bestScoreInfo.style.color = '#0003ad';
+      nowScoreInfo.style.color = '#0003ad';
+    }
+    bestScoreInfo.innerText = `BEST: ${bestScore}`;
+    nowScoreInfo.innerText = `NOW: ${score}`;
+  }
+
+  createGameObjects();
+
+  // Встроенные функции Babylon.js
+  scene.registerBeforeRender(()=>{
+    for(let i = 0; i < boxArray.length; i++){
+      if(ball.intersectsMesh(boxArray[i], true)){
+        boxArray[i].material.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
+        setGameOverScreen();
+      }
+    }
+    for(let i = 0; i < pointArray.length; i++){
+      if(ball.intersectsPoint(pointArray[i])){
+        pointArray.splice(i, 1);
+        score++;
+        scoreInfo.innerText = score;
+        if(pointArray.length <= 4) {
+          newRoadBlock((pointArray[pointArray.length-1].z+3)/6);
+          newRoadBlock((pointArray[pointArray.length-1].z+3)/6);
+        }
+      }
+    }
+  });
+
+  engine.runRenderLoop(() => {
+    camera.position.x = ball.getAbsolutePosition().x;
+    light.position.x = ball.getAbsolutePosition().x;
+    scene.render();
+  });
+
+
+  // ОБРАБОТЧИКИ СОБЫТИЙ
+  restartBtn.addEventListener('click', () => window.location.reload());
+  window.addEventListener('touchstart', (event) => {
+    if(state !== GAME_OVER){
+      ball.physicsImpostor.applyImpulse(
+        new BABYLON.Vector3(0, 5, 0),
+        ball.getAbsolutePosition()
+      );
+    } else {
+      gameOverScreen.style.display = 'none';
+      deleteGameObjects();
+      createGameObjects();
+      playScreen.style.display = 'block';
+      state = PLAY;
+    }
+  });
+  window.addEventListener('touchend', () => {
+    ball.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(1, 0, 0));
+    ball.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0,));
+  });
+  window.addEventListener('onClick', () => {
+    ball.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(1, 0, 0));
+    ball.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0,));
+  });
+  window.addEventListener('beforeinstallprompt', (event) =>{
+    event.preventDefault();
+  });
+</script>
+<script src="https://telegram.org/js/games.js"></script>
+<button onclick="TelegramGameProxy.shareScore()">Share score</button>
+</body>
